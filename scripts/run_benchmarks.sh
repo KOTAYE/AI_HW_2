@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")/.."
 export PYTHONIOENCODING=utf-8
 mkdir -p logs
-run() { local name=$1; shift; echo "=== $name"; "$@" > "logs/$name.log" 2>&1; }
+run() { local name=$1; shift; echo "=== $name $(date +%H:%M)"; "$@" > "logs/$name.log" 2>&1 || echo "FAILED $name"; }
 
 frcnn() {   # two-stage anchor-based (torchvision Faster R-CNN R50-FPN v2), 12 epochs
   run frcnn_base   python src/tv.py train --arch frcnn --name frcnn_base
@@ -33,8 +33,13 @@ retina() {  # one-stage anchor-based (torchvision RetinaNet R50-FPN v2), 12 epoc
   run retina_anc16_giou_e python src/tv.py eval  --arch retina --name retina_anc16_giou
 }
 
-yolo() {    # one-stage anchor-free (Ultralytics YOLO11s), 30 epochs
-  run yolo11s_1024_e python src/ultra.py eval --name yolo11s_1024 --imgsz 1024
+yolo_base() {  # one-stage anchor-free baseline (Ultralytics YOLO11s, 30 epochs) + first Kaggle submission
+  run yolo11s_1024   python src/ultra.py train --model yolo11s.pt --name yolo11s_1024 --imgsz 1024 --batch 4
+  run yolo11s_1024_e python src/ultra.py eval  --name yolo11s_1024 --imgsz 1024
+  run yolo11s_1024_t python src/ultra.py test  --name yolo11s_1024 --imgsz 1024
+}
+
+yolo() {    # anchor-free tuning
   # extra stride-4 (P2) detection level
   run yolo11s_p2_1024   python src/ultra.py train --model yolo11s.pt --cfg-yaml models/yolo11s-p2.yaml --name yolo11s_p2_1024 --imgsz 1024 --batch 4
   run yolo11s_p2_1024_e python src/ultra.py eval  --name yolo11s_p2_1024 --imgsz 1024
@@ -53,5 +58,5 @@ detr() {    # query-based (Ultralytics RT-DETR-L), same wall-clock budget as YOL
   run rtdetr_l_q500_e python src/ultra.py eval  --name rtdetr_l_q500 --imgsz 1024
 }
 
-groups=("$@"); [ ${#groups[@]} -eq 0 ] && groups=(frcnn retina yolo detr)
+groups=("$@"); [ ${#groups[@]} -eq 0 ] && groups=(yolo_base frcnn retina yolo detr)
 for g in "${groups[@]}"; do $g; done
