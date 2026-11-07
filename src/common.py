@@ -1,12 +1,14 @@
 """Shared paths, constants and helpers used by every model in this project."""
 from pathlib import Path
+import os
 import random
 
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "data"              # raw Kaggle data: data/train, data/val, data/test, data/test_images.csv
-PREP = DATA / "prepared"          # outputs of prepare_data.py
+# raw Kaggle data: train/, val/, test/, test_images.csv (override with HW2_DATA, e.g. inside a Kaggle kernel)
+DATA = Path(os.environ.get("HW2_DATA", ROOT / "data"))
+PREP = Path(os.environ.get("HW2_PREP", ROOT / "data" / "prepared"))  # outputs of prepare_data.py
 RUNS = ROOT / "runs"              # training outputs (weights, logs)
 PRED = ROOT / "predictions"       # cached validation / test predictions
 RESULTS = ROOT / "results"        # metric tables (csv/json) used in the report

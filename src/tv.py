@@ -172,11 +172,14 @@ def train(a):
     json.dump(vars(a), open(out / "args.json", "w"), indent=1)
     model = build(a).to(DEVICE)
     ds = YoloFolder(PREP / a.train, train=True)
+    if a.limit:  # debugging only
+        ds.images = ds.images[:a.limit]
     dl = DataLoader(ds, batch_size=a.batch, shuffle=True, num_workers=6, collate_fn=collate,
                     persistent_workers=True, drop_last=True)
     params = [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.SGD(params, lr=a.lr, momentum=0.9, weight_decay=1e-4)
-    total, warm = a.epochs * len(dl), min(500, len(dl))
+    total = a.epochs * len(dl)
+    warm = min(500, total // 2)
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: (s + 1) / warm if s < warm else 0.5 * (1 + math.cos(math.pi * (s - warm) / (total - warm))))
     scaler = torch.amp.GradScaler()
@@ -204,7 +207,7 @@ def train(a):
                 print(f"ep {ep} it {it}/{len(dl)} loss {loss.item():.3f} lr {opt.param_groups[0]['lr']:.4f}", flush=True)
         rec = {"epoch": ep, "time_s": round(time.time() - t0), **{k: v / len(dl) for k, v in run.items()}}
         if (ep + 1) % a.eval_every == 0 or ep + 1 == a.epochs:
-            preds, _ = predict(model, val_items())
+            preds, _ = predict(model, val_items()[:a.limit or None])
             m = evaluate(preds, PREP / "val_s5" / "coco_gt.json", per_class=False)
             rec.update(mAP=m["mAP"], AP50=m["AP50"], AP_small=m["AP_small"])
         log.append(rec)
@@ -276,6 +279,7 @@ if __name__ == "__main__":
     ap.add_argument("--batch", type=int, default=4)
     ap.add_argument("--lr", type=float, default=0.01)
     ap.add_argument("--eval-every", type=int, default=3)
+    ap.add_argument("--limit", type=int, default=0, help="debug: use only N train / val images")
     # anchors (both archs): base sizes per FPN level; None = torchvision default (32..512)
     ap.add_argument("--anchors", type=int, nargs="*", default=None)
     ap.add_argument("--ratios", type=float, nargs="*", default=[0.5, 1.0, 2.0])
