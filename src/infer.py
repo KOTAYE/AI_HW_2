@@ -70,12 +70,12 @@ def detect(model, img: np.ndarray, a) -> np.ndarray:
     """Detections (N, 6) [x1, y1, x2, y2, score, cls] in original pixels for one BGR image."""
     h, w = img.shape[:2]
     kw = dict(imgsz=a.imgsz, conf=a.conf, iou=a.iou, max_det=MAX_DET, verbose=False, half=True)
-    full = _to_array(model.predict(img, augment=a.tta, **kw)[0])
+    full = _to_array(model.predict(img, augment=a.tta, **kw)[0]) if not a.no_full else np.zeros((0, 6))
     if a.tiles <= 1:
         return full
     boxes = tiles_of(h, w, a.tiles, a.overlap)
     crops = [img[y1:y2, x1:x2] for x1, y1, x2, y2 in boxes]
-    parts = [full]
+    parts = [full] if not a.no_full else []
     for (x1, y1, x2, y2), r in zip(boxes, model.predict(crops, **kw)):
         d = _to_array(r)
         # drop boxes cut by an inner tile border (they are covered by the neighbouring tile / full frame)
@@ -164,8 +164,12 @@ def run(a) -> None:
     for i, (stem, path) in enumerate(items):
         img = cv2.imread(str(path))
         t0 = time.perf_counter()
+        scale = min(1.0, a.max_side / max(img.shape[:2])) if a.max_side else 1.0
+        if scale < 1:  # e.g. 4K validation frames -> the <=1920 px scale of train/test
+            img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         dets = [detect(m, img, a) for m in models]
         d = dets[0] if len(dets) == 1 else wbf_merge(dets, img.shape[1], img.shape[0], a.merge_iou)
+        d[:, :4] /= scale
         t_total += time.perf_counter() - t0
         preds[stem] = [[int(c), float(s), float(x1), float(y1), float(x2 - x1), float(y2 - y1)]
                        for x1, y1, x2, y2, s, c in d]
@@ -198,6 +202,8 @@ if __name__ == "__main__":
     ap.add_argument("--tta", action="store_true")
     ap.add_argument("--tiles", type=int, default=1, help="n for an n x n tile grid (1 = no tiling)")
     ap.add_argument("--overlap", type=float, default=0.2)
+    ap.add_argument("--no-full", action="store_true", help="tiles only, skip the full-frame pass (tile-trained models)")
+    ap.add_argument("--max-side", type=int, default=0, help="downscale inputs to this long side first (0 = off)")
     ap.add_argument("--merge", choices=["nms", "wbf"], default="nms", help="how tiles are merged")
     ap.add_argument("--merge-iou", type=float, default=0.6)
     ap.add_argument("--temporal", type=int, default=0, help="temporal window k (0 = off)")
