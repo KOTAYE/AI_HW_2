@@ -167,6 +167,10 @@ def run(a) -> None:
         scale = min(1.0, a.max_side / max(img.shape[:2])) if a.max_side else 1.0
         if scale < 1:  # e.g. 4K validation frames -> the <=1920 px scale of train/test
             img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        if a.upscale_to and max(img.shape[:2]) < a.upscale_to:  # small test frames (680/960 px): enlarge tiny objects
+            up = a.upscale_to / max(img.shape[:2])
+            img = cv2.resize(img, None, fx=up, fy=up, interpolation=cv2.INTER_LINEAR)
+            scale *= up
         dets = [detect(m, img, a) for m in models]
         d = dets[0] if len(dets) == 1 else wbf_merge(dets, img.shape[1], img.shape[0], a.merge_iou)
         d[:, :4] /= scale
@@ -204,6 +208,7 @@ if __name__ == "__main__":
     ap.add_argument("--overlap", type=float, default=0.2)
     ap.add_argument("--no-full", action="store_true", help="tiles only, skip the full-frame pass (tile-trained models)")
     ap.add_argument("--max-side", type=int, default=0, help="downscale inputs to this long side first (0 = off)")
+    ap.add_argument("--upscale-to", type=int, default=0, help="enlarge inputs smaller than this long side (0 = off)")
     ap.add_argument("--merge", choices=["nms", "wbf"], default="nms", help="how tiles are merged")
     ap.add_argument("--merge-iou", type=float, default=0.6)
     ap.add_argument("--temporal", type=int, default=0, help="temporal window k (0 = off)")

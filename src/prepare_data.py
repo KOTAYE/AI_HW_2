@@ -98,7 +98,7 @@ def write_coco_subset(split: str, frames: list[dict], out_path: Path) -> None:
 
 
 def build(split: str, step: int, mask: bool, max_side: int, workers: int) -> None:
-    name = f"{split}_s{step}" + ("_nomask" if split == "train" and not mask else "")
+    name = f"{split}_s{step}" + ("_nomask" if split == "train" and not mask else "")         + ("_masked" if split == "val" and mask else "")
     out = PREP / name
     (out / "images").mkdir(parents=True, exist_ok=True)
     (out / "labels").mkdir(parents=True, exist_ok=True)
@@ -107,7 +107,7 @@ def build(split: str, step: int, mask: bool, max_side: int, workers: int) -> Non
     with ProcessPoolExecutor(workers) as ex:
         stats = list(ex.map(process_frame, jobs, chunksize=16))
     kept, dropped = map(sum, zip(*stats))
-    if split == "val":
+    if split == "val" and not mask:
         write_coco_subset(split, frames, out / "coco_gt.json")
     print(f"{name}: {len(frames)} frames, {kept} boxes kept, {dropped} dropped (inside ignore)")
 
@@ -125,6 +125,8 @@ if __name__ == "__main__":
     ap.add_argument("--split", choices=["train", "val"])
     ap.add_argument("--step", type=int, default=10)
     ap.add_argument("--no-mask", action="store_true", help="do not paint ignored regions")
+    ap.add_argument("--mask-val", action="store_true",
+                    help="prepare val like train (masked) - only for the final train+val model")
     ap.add_argument("--max-side", type=int, default=1920)
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--yaml", nargs=2, metavar=("TRAIN", "VAL"), help="only write a dataset yaml")
@@ -133,4 +135,4 @@ if __name__ == "__main__":
         write_yaml(*a.yaml)
     else:
         # validation subsets are never masked (they must look like test images)
-        build(a.split, a.step, mask=(a.split == "train" and not a.no_mask), max_side=a.max_side, workers=a.workers)
+        build(a.split, a.step, mask=(a.split == "train" and not a.no_mask) or a.mask_val, max_side=a.max_side, workers=a.workers)
