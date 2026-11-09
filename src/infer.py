@@ -94,8 +94,10 @@ def detect(model, img: np.ndarray, a) -> np.ndarray:
 
 
 # ----------------------------------------------------------------------------- temporal rescoring
-def temporal_rescore(preds: dict, frame_of: dict, window: int, iou_thr: float = 0.5) -> dict:
-    """score_t <- mean over frames t-k..t+k of the best same-class matching score (0 if no match).
+def temporal_rescore(preds: dict, frame_of: dict, window: int, iou_thr: float = 0.5, alpha: float = 1.0) -> dict:
+    """score_t <- (1 - alpha) * score_t + alpha * mean over frames t-k..t+k of the best same-class matching
+    score (0 if no match). alpha = 1 is plain Seq-NMS-style averaging; a smaller alpha keeps more of the
+    detector's own confidence, so an object missed in one neighbouring frame is penalised less.
 
     frame_of: stem -> (clip, frame). Frames missing at clip borders are skipped (not counted as zero).
     """
@@ -127,7 +129,7 @@ def temporal_rescore(preds: dict, frame_of: dict, window: int, iou_thr: float = 
                 best = np.where(ok, n[:, 1][None, :], 0).max(1)
                 acc += best
             new = d.copy()
-            new[:, 1] = acc / cnt
+            new[:, 1] = (1 - alpha) * d[:, 1] + alpha * acc / cnt
             out[stem] = new.tolist()
     return out
 
@@ -179,8 +181,10 @@ def run(a) -> None:
                        for x1, y1, x2, y2, s, c in d]
         if i % 500 == 0:
             print(f"{i}/{len(items)}", flush=True)
-    if a.temporal:
-        preds = temporal_rescore(preds, frame_of, a.temporal, a.temporal_iou)
+    if a.temporal:  # raw per-frame predictions (incl. neighbour frames) are kept for offline tuning
+        PRED.mkdir(exist_ok=True)
+        json.dump({"preds": preds, "frame_of": frame_of}, open(PRED / f"{a.split}_{a.tag}_raw.json", "w"))
+        preds = temporal_rescore(preds, frame_of, a.temporal, a.temporal_iou, a.temporal_alpha)
     PRED.mkdir(exist_ok=True)
     json.dump(preds, open(PRED / f"{a.split}_{a.tag}.json", "w"))
     if a.split == "test":
@@ -213,5 +217,6 @@ if __name__ == "__main__":
     ap.add_argument("--merge-iou", type=float, default=0.6)
     ap.add_argument("--temporal", type=int, default=0, help="temporal window k (0 = off)")
     ap.add_argument("--temporal-iou", type=float, default=0.5)
+    ap.add_argument("--temporal-alpha", type=float, default=1.0)
     a = ap.parse_args()
     run(a)
